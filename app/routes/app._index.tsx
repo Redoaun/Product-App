@@ -7,71 +7,55 @@ import {
   Layout,
   Text,
   Card,
-  Button,
   BlockStack,
-  Box,
-  List,
   Link,
   InlineStack,
 } from "@shopify/polaris";
+
 import { authenticate } from "../shopify.server";
+
+import GenerateProduct from "../components/Product/GenerateProduct";
+import DeleteProduct from "../components/Product/DeleteProduct";
+
+import { generateRandomProduct, deleteAllProducts } from "../services/product"
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   await authenticate.admin(request);
-
   return null;
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { admin } = await authenticate.admin(request);
-  const color = ["Red", "Orange", "Yellow", "Green"][
-    Math.floor(Math.random() * 4)
-  ];
-  const response = await admin.graphql(
-    `#graphql
-      mutation populateProduct($input: ProductInput!) {
-        productCreate(input: $input) {
-          product {
-            id
-            title
-            handle
-            status
-            variants(first: 10) {
-              edges {
-                node {
-                  id
-                  price
-                  barcode
-                  createdAt
-                }
-              }
-            }
-          }
-        }
-      }`,
-    {
-      variables: {
-        input: {
-          title: `${color} Snowboard`,
-          variants: [{ price: Math.random() * 100 }],
-        },
-      },
-    }
-  );
-  const responseJson = await response.json();
+  const { admin, session } = await authenticate.admin(request);
+  const [formData] = await Promise.all([request.formData()]);
+  const actionType = formData.get('actionType');
 
-  return json({
-    product: responseJson.data?.productCreate?.product,
-  });
+  console.log('actionType: ', actionType);
+  console.log('session:', session);
+  switch(actionType) {
+    case 'generate':
+      const product = await generateRandomProduct(admin);
+      return product;
+    case 'delete':
+      const response = await deleteAllProducts(admin);
+      return response;
+    default:
+      return json({product: "gid://shopify/ProductVariant/44749229326502"});
+  }
 };
 
 export default function Index() {
   const nav = useNavigation();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
-  const isLoading =
+  const isGenerating =
     ["loading", "submitting"].includes(nav.state) && nav.formMethod === "POST";
+  const isDeleting =
+    ["loading", "submitting"].includes(nav.state) && nav.formMethod === "DELETE";
   const productId = actionData?.product?.id.replace(
+    "gid://shopify/Product/",
+    ""
+  );
+  const deletedProductId = actionData?.deletedProduct?.id.replace(
     "gid://shopify/Product/",
     ""
   );
@@ -81,11 +65,17 @@ export default function Index() {
       shopify.toast.show("Product created");
     }
   }, [productId]);
-  const generateProduct = () => submit({}, { replace: true, method: "POST" });
+  useEffect(() => {
+    if (deletedProductId) {
+      shopify.toast.show("All Products deleted");
+    }
+  }, [deletedProductId]);
+  const generateProduct = () => submit({actionType: 'generate'}, { replace: true, method: "POST" });
+  const deleteProduct = () => submit({actionType: 'delete'}, { replace: true, method: "DELETE" });
 
   return (
     <Page>
-      <ui-title-bar title="Remix app template">
+      <ui-title-bar title="Generate / Delete Products">
         <button variant="primary" onClick={generateProduct}>
           Generate a product
         </button>
@@ -93,84 +83,19 @@ export default function Index() {
       <BlockStack gap="500">
         <Layout>
           <Layout.Section>
-            <Card>
-              <BlockStack gap="500">
-                <BlockStack gap="200">
-                  <Text as="h2" variant="headingMd">
-                    Congrats on creating a new Shopify app 🎉
-                  </Text>
-                  <Text variant="bodyMd" as="p">
-                    This embedded app template uses{" "}
-                    <Link
-                      url="https://shopify.dev/docs/apps/tools/app-bridge"
-                      target="_blank"
-                      removeUnderline
-                    >
-                      App Bridge
-                    </Link>{" "}
-                    interface examples like an{" "}
-                    <Link url="/app/additional" removeUnderline>
-                      additional page in the app nav
-                    </Link>
-                    , as well as an{" "}
-                    <Link
-                      url="https://shopify.dev/docs/api/admin-graphql"
-                      target="_blank"
-                      removeUnderline
-                    >
-                      Admin GraphQL
-                    </Link>{" "}
-                    mutation demo, to provide a starting point for app
-                    development.
-                  </Text>
-                </BlockStack>
-                <BlockStack gap="200">
-                  <Text as="h3" variant="headingMd">
-                    Get started with products
-                  </Text>
-                  <Text as="p" variant="bodyMd">
-                    Generate a product with GraphQL and get the JSON output for
-                    that product. Learn more about the{" "}
-                    <Link
-                      url="https://shopify.dev/docs/api/admin-graphql/latest/mutations/productCreate"
-                      target="_blank"
-                      removeUnderline
-                    >
-                      productCreate
-                    </Link>{" "}
-                    mutation in our API references.
-                  </Text>
-                </BlockStack>
-                <InlineStack gap="300">
-                  <Button loading={isLoading} onClick={generateProduct}>
-                    Generate a product
-                  </Button>
-                  {actionData?.product && (
-                    <Button
-                      url={`shopify:admin/products/${productId}`}
-                      target="_blank"
-                      variant="plain"
-                    >
-                      View product
-                    </Button>
-                  )}
-                </InlineStack>
-                {actionData?.product && (
-                  <Box
-                    padding="400"
-                    background="bg-surface-active"
-                    borderWidth="025"
-                    borderRadius="200"
-                    borderColor="border"
-                    overflowX="scroll"
-                  >
-                    <pre style={{ margin: 0 }}>
-                      <code>{JSON.stringify(actionData.product, null, 2)}</code>
-                    </pre>
-                  </Box>
-                )}
-              </BlockStack>
-            </Card>
+            <BlockStack gap="500">
+              <GenerateProduct 
+                productId={productId} 
+                isLoading={isGenerating} 
+                actionData={actionData}
+                generateProduct={generateProduct}
+              />
+              <DeleteProduct
+                isLoading={isDeleting} 
+                actionData={actionData}
+                deleteProduct={deleteProduct}
+              />
+            </BlockStack>
           </Layout.Section>
           <Layout.Section variant="oneThird">
             <BlockStack gap="500">
@@ -239,37 +164,6 @@ export default function Index() {
                       </Link>
                     </InlineStack>
                   </BlockStack>
-                </BlockStack>
-              </Card>
-              <Card>
-                <BlockStack gap="200">
-                  <Text as="h2" variant="headingMd">
-                    Next steps
-                  </Text>
-                  <List>
-                    <List.Item>
-                      Build an{" "}
-                      <Link
-                        url="https://shopify.dev/docs/apps/getting-started/build-app-example"
-                        target="_blank"
-                        removeUnderline
-                      >
-                        {" "}
-                        example app
-                      </Link>{" "}
-                      to get started
-                    </List.Item>
-                    <List.Item>
-                      Explore Shopify’s API with{" "}
-                      <Link
-                        url="https://shopify.dev/docs/apps/tools/graphiql-admin-api"
-                        target="_blank"
-                        removeUnderline
-                      >
-                        GraphiQL
-                      </Link>
-                    </List.Item>
-                  </List>
                 </BlockStack>
               </Card>
             </BlockStack>
