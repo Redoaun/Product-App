@@ -14,8 +14,8 @@ import {
 
 import { authenticate } from "../shopify.server";
 
-import GenerateProduct from "../components/Product/GenerateProduct";
-import DeleteProduct from "../components/Product/DeleteProduct";
+import GenerateProduct from "../components/products/GenerateProduct";
+import DeleteProduct from "../components/products/DeleteProduct";
 
 import { generateRandomProduct, deleteAllProducts } from "../services/product"
 
@@ -45,7 +45,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 export default function Index() {
   const nav = useNavigation();
-  const actionData = useActionData<typeof action>();
+  const actionData:any = useActionData<typeof action>();
   const submit = useSubmit();
   const isGenerating =
     ["loading", "submitting"].includes(nav.state) && nav.formMethod === "POST";

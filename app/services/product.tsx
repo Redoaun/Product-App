@@ -1,8 +1,14 @@
 import { json } from "@remix-run/node";
 
+import type { AdminApiContext } from "node_modules/@shopify/shopify-app-remix/build/ts/server/clients";
 import type { Product, ProductsResponse} from "../interfaces/product";
 
-export const generateRandomProduct = async (admin: any) => {
+/**
+ * generates a random product with a random color and price
+ * @param admin Methods for interacting with the GraphQL / REST Admin APIs for the store that made the request
+ * @returns a new generated Product
+ */
+export const generateRandomProduct = async (admin: AdminApiContext) => {
   const color = ["Red", "Orange", "Yellow", "Green"][
     Math.floor(Math.random() * 4)
   ];
@@ -44,29 +50,47 @@ export const generateRandomProduct = async (admin: any) => {
   });
 }
 
-export const deleteAllProducts = async (admin: any ) => {
+/**
+ * deletes all products in the Shopify store.
+ * @param admin Methods for interacting with the GraphQL / REST Admin APIs for the store that made the request
+ * @returns the last deleted Product
+ */
+export const deleteAllProducts = async (admin: AdminApiContext ) => {
   const response:ProductsResponse = {products: [], hasNextPage: true};
   const firstResponse = await getFirstProduct(admin);
-  response.products.push(...firstResponse.products);
-  response.endCursor = firstResponse.endCursor;
-  while(response.hasNextPage)   {
-    const nextResponse = await getNextPageProducts(admin, response.endCursor);
-    response.products.push(...nextResponse.products);
-    response.hasNextPage = nextResponse.hasNextPage;
-    response.endCursor = nextResponse.endCursor;
-  }
-  console.log(response);
-  let deletedProduct: Product = {id: response.products[0].id, handle: response.products[0].handle};
-  for(let product of response.products) {
-    deletedProduct = await deleteProduct(admin, product);
-  }
 
-  return json({
-    deletedProduct: deletedProduct,
-  })
+  if(firstResponse.endCursor) {
+    response.products.push(...firstResponse.products);
+    response.endCursor = firstResponse.endCursor;
+  
+    while(response.hasNextPage)   {
+      const nextResponse = await getNextPageProducts(admin, response.endCursor);
+      response.products.push(...nextResponse.products);
+      response.hasNextPage = nextResponse.hasNextPage;
+      response.endCursor = nextResponse.endCursor;
+    }
+    let deletedProduct: Product = {id: response.products[0].id, handle: response.products[0].handle};
+    for(let product of response.products) {
+      deletedProduct = await deleteProduct(admin, product);
+    }
+  
+    return json({
+      deletedProduct: deletedProduct,
+    })
+  } else {
+    return json({
+      deleteProduct: {id: '', handle: ''}
+    })
+  }
 }
 
-export const getFirstProduct = async (admin: any): Promise<ProductsResponse>  => {
+
+/**
+ * retrieves the first product from the Shopify store using the Shopify Admin API
+ * @param admin Methods for interacting with the GraphQL / REST Admin APIs for the store that made the request
+ * @returns products, endCursor, hasNextPage 
+ */
+export const getFirstProduct = async (admin: AdminApiContext): Promise<ProductsResponse>  => {
   const response = await admin.graphql(
     `#graphql
       query {
@@ -84,14 +108,21 @@ export const getFirstProduct = async (admin: any): Promise<ProductsResponse>  =>
   )
   
   const responseJson = await response.json();
+  console.log('getFirst', responseJson.data?.products?.pageInfo);
   return {
     products: responseJson.data?.products.nodes,
-    endCursor: responseJson.data?.products?.pageInfo?.endCursor,
-    hasNextPage: responseJson.data?.products?.pageInfo?.hasNextPage
+    endCursor: responseJson.data?.products?.pageInfo?.endCursor || undefined,
+    hasNextPage: responseJson.data?.products?.pageInfo?.hasNextPage 
   }
 }
 
-export const getNextPageProducts = async (admin: any, endCursor: any): Promise<ProductsResponse> => {
+/**
+ * retrieves the next page of products from the Shopify store using the Shopify Admin API
+ * @param admin Methods for interacting with the GraphQL / REST Admin APIs for the store that made the request
+ * @param endCursor the cursor corresponding to the last node in edges
+ * @returns products, endCursor, hasNextPage
+ */
+export const getNextPageProducts = async (admin: AdminApiContext, endCursor: string | undefined): Promise<ProductsResponse> => {
   
   const response = await admin.graphql(
     `#graphql
@@ -123,8 +154,13 @@ export const getNextPageProducts = async (admin: any, endCursor: any): Promise<P
   }
 }
 
-export const deleteProduct = async (admin: any, product: Product): Promise<Product>  => {
-  console.log('product: ', product);
+/**
+ * delete a product by product id
+ * @param admin Methods for interacting with the GraphQL / REST Admin APIs for the store that made the request
+ * @param product product info with id and handle to be deleted
+ * @returns deleted product info
+ */
+export const deleteProduct = async (admin: AdminApiContext, product: Product): Promise<Product>  => {
   const response = await admin.graphql(
     `#graphql
       mutation deleteProduct($input: ProductDeleteInput!) {
@@ -142,7 +178,6 @@ export const deleteProduct = async (admin: any, product: Product): Promise<Produ
   );
   
   const responseJson = await response.json();
-  console.log(responseJson);
 
   return {
     id:responseJson.data?.productDelete?.deletedProductId,
